@@ -1,0 +1,5 @@
+max_width = 120
+tab_spaces = 2
+imports_granularity = 'Crate'
+use_small_heuristics = 'Max'
+hex_literal_case = 'Upper'

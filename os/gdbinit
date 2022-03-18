@@ -1,0 +1,7 @@
+set confirm off
+
+# b main.rs:47
+b syscall_return
+# b syscall_entry
+
+c
