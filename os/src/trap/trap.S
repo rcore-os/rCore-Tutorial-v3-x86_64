@@ -1,3 +1,8 @@
+.data
+.align 4
+TSS:
+  .space 104
+
 .text
 
 .macro save
@@ -29,16 +34,14 @@ __trap_entry:
   save
   mov rdi, rsp
   call trap_handler
-  mov [rsp], rax # TrapFrame.regs.rax is at offset 0
   mov rax, [rsp + 96] # 96 = offsetof(TrapFrame, cs)
   and rax, 0x3
   jz __from_kernel
-  swapgs
-  lea rax, [rax + 128] # prepare new TSS.sp0, 128 = sizeof(TrapFrame)
-  mov gs:4, rax
-  swapgs
+  lea rax, [rsp + 128] # prepare new TSS.sp0, 128 = sizeof(TrapFrame)
+  mov [TSS + rip + 4], rax
 __from_kernel:
   restore
+  add rsp, 16 # skip TrapFrame.err and id
   iretq
 
 .global syscall_entry
@@ -47,10 +50,9 @@ syscall_entry:
   # - load cs, ss from STAR MSR
   # - r11 <- rflags, mask rflags from RFMASK MSR
   # - rcx <- rip, load rip from LSTAR MSR
-  swapgs
-  mov gs:12, rsp # store user rsp -> scratch at TSS.sp1
-  mov rsp, gs:4 # load kernel rsp <- TSS.sp0
-  swapgs
+  mov [TSS + rip + 12], rsp # temporarily store user rsp -> scratch at TSS.sp1
+  mov rsp, [TSS + rip + 4] # load kernel rsp <- TSS.sp0
+  push [TSS + rip + 12] # store user rsp -> SyscallFrame.rsp
   save
   mov rdi, rsp
   call syscall_handler
@@ -61,10 +63,8 @@ syscall_entry:
 syscall_return: # (CallerRegs *)
   mov rsp, rdi
 __syscall_return:
-  lea rax, [rsp + 72] # prepare new TSS.sp0, 72 = sizeof(CallerRegs)
-  swapgs
-  mov gs:4, rax
+  lea rax, [rsp + 80] # prepare new TSS.sp0, 80 = sizeof(SyscallFrame)
+  mov [TSS + rip + 4], rax
   restore
-  mov rsp, gs:12 # restore user rsp
-  swapgs
+  pop rsp # restore user rsp
   sysretq

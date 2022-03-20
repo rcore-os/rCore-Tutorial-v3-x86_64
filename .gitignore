@@ -2,3 +2,5 @@ Cargo.lock
 target
 .idea
 tmp
+vector.S
+link_app.S
