@@ -1,16 +1,15 @@
+use xmas_elf::{program::{SegmentData, Type}, {header, ElfFile}};
+
+use crate::mm::*;
+
 core::arch::global_asm!(include_str!("link_app.S"));
+
+pub const USTACK_SIZE: usize = 4096 * 4;
+pub const USTACK_TOP: usize = 0x8000_0000_0000;
 
 extern "C" {
   static _app_count: usize;
 }
-
-pub const MAX_APP_NUM: usize = 16;
-const APP_BASE_ADDRESS: usize = 0xffffff0001000000;
-const APP_SIZE_LIMIT: usize = 0x20000;
-
-#[no_mangle]
-#[link_section = "._user_section"]
-pub static APP_DST: [u8; APP_SIZE_LIMIT * MAX_APP_NUM] = [0; APP_SIZE_LIMIT * MAX_APP_NUM];
 
 pub fn get_app_count() -> usize {
   unsafe { _app_count }
@@ -41,17 +40,45 @@ pub fn get_app_data(app_id: usize) -> &'static [u8] {
   }
 }
 
-pub fn load_app(app_id: usize) -> (usize, usize) {
+pub fn load_app(app_id: usize) -> (usize, MemorySet) {
   assert!(app_id < get_app_count());
-  let entry = APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT;
-  let app_data = get_app_data(app_id);
-  let app_dst = unsafe { core::slice::from_raw_parts_mut(entry as *mut u8, app_data.len()) };
-  app_dst.copy_from_slice(app_data);
-  (entry, entry + APP_SIZE_LIMIT)
+
+  let elf_data = get_app_data(app_id);
+  let elf = ElfFile::new(elf_data).expect("invalid ELF file");
+  assert_eq!(elf.header.pt1.class(), header::Class::SixtyFour, "64-bit ELF required");
+  assert_eq!(elf.header.pt2.type_().as_type(), header::Type::Executable, "ELF is not an executable object");
+  assert_eq!(elf.header.pt2.machine().as_machine(), header::Machine::X86_64, "invalid ELF arch");
+
+  let mut ms = MemorySet::new();
+  for ph in elf.program_iter() {
+    if ph.get_type() != Ok(Type::Load) {
+      continue;
+    }
+    let va = VirtAddr(ph.virtual_addr() as _);
+    let offset = va.page_offset();
+    let area_start = va.align_down();
+    let area_end = VirtAddr((ph.virtual_addr() + ph.mem_size()) as _).align_up();
+    let data = match ph.get_data(&elf).unwrap() {
+      SegmentData::Undefined(data) => data,
+      _ => panic!("failed to get ELF segment data"),
+    };
+
+    let mut flags = PTFlags::PRESENT | PTFlags::USER;
+    if ph.flags().is_write() {
+      flags |= PTFlags::WRITABLE;
+    }
+    let mut area = MapArea::new(area_start, area_end.0 - area_start.0, flags);
+    area.write_data(offset, data);
+    ms.insert(area);
+    // crate::arch::flush_icache_all();
+  }
+  ms.insert(MapArea::new(VirtAddr(USTACK_TOP - USTACK_SIZE), USTACK_SIZE,
+    PTFlags::PRESENT | PTFlags::WRITABLE | PTFlags::USER));
+
+  (elf.header.pt2.entry_point() as usize, ms)
 }
 
 pub fn list_apps() {
-  assert_eq!(APP_DST.as_ptr() as usize, APP_BASE_ADDRESS);
   println!("/**** APPS ****");
   let app_count = get_app_count();
   for i in 0..app_count {

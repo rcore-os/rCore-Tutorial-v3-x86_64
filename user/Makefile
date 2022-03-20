@@ -5,7 +5,6 @@ APP_DIR := src/bin
 TARGET_DIR := target/$(ARCH)/$(MODE)
 APPS := $(wildcard $(APP_DIR)/*.rs)
 ELFS := $(patsubst $(APP_DIR)/%.rs, $(TARGET_DIR)/%, $(APPS))
-BINS := $(patsubst %, %.bin, $(ELFS))
 ASMS := $(patsubst %, %.asm, $(ELFS))
 
 BUILD_ARGS := --target $(ARCH).json -Zbuild-std=core
@@ -18,26 +17,17 @@ OBJCOPY := rust-objcopy --binary-architecture=$(ARCH)
 
 all: build
 
-$(TARGET_DIR)/%: $(APP_DIR)/%.rs
-	$(eval IDX=$(shell echo $(notdir $<) | cut -c2))
-	$(eval ADDR=$(shell printf "0x%X\n" $$((0xffffff0001000000+$(IDX)*0x20000)) ))
-	@echo 'Entry point of "$(notdir $@)": $(ADDR)'
-	@cp src/linker.ld src/linker.ld.bak
-	@sed "s/BASE_ADDRESS = .*/BASE_ADDRESS = $(ADDR);/" src/linker.ld.bak > src/linker.ld
-	cargo build $(BUILD_ARGS) --bin $(notdir $@)
-	@mv src/linker.ld.bak src/linker.ld
+elf:
+	cargo build $(BUILD_ARGS)
 
-$(TARGET_DIR)/%.bin: $(TARGET_DIR)/%
-	$(OBJCOPY) --strip-all -O binary $< $@
+$(ELFS): elf
 
 $(TARGET_DIR)/%.asm: $(TARGET_DIR)/%
 	$(OBJDUMP) -d $< > $@
 
-binary: $(BINS) $(ELFS)
-
 disasm: $(ASMS) $(ELFS)
 
-build: binary
+build: elf
 
 clean:
 	@cargo clean

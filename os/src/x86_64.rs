@@ -30,14 +30,14 @@ pub const RING3: u16 = 3;
 pub const RFLAGS_IF: usize = 1 << 9;
 
 #[inline(always)]
-pub fn read_msr(id: u32) -> usize {
+pub fn get_msr(id: u32) -> usize {
   let (high, low): (u32, u32);
   unsafe { asm!("rdmsr", in("ecx") id, out("eax") low, out("edx") high, options(nomem, nostack, preserves_flags)); }
   ((high as usize) << 32) | (low as usize)
 }
 
 #[inline(always)]
-pub fn write_msr(id: u32, val: usize) {
+pub fn set_msr(id: u32, val: usize) {
   let low = val as u32;
   let high = (val >> 32) as u32;
   unsafe { asm!("wrmsr", in("ecx") id, in("eax") low, in("edx") high, options(nostack, preserves_flags)); }
@@ -94,4 +94,17 @@ pub fn set_cs(sel: u16) {
 #[inline(always)]
 pub fn set_ss(sel: u16) {
   unsafe { asm!("mov ss, {0:x}", in(reg) sel, options(nostack, preserves_flags)); }
+}
+
+#[inline(always)]
+pub fn get_cr3() -> usize {
+  let val: usize;
+  unsafe { asm!("mov {}, cr3", out(reg) val, options(nomem, nostack, preserves_flags)); }
+  // Mask top bits and flags.
+  val & 0x_000f_ffff_ffff_f000
+}
+
+#[inline(always)]
+pub fn set_cr3(pa: usize) {
+  unsafe { asm!("mov cr3, {}", in(reg) pa, options(nostack, preserves_flags)); }
 }

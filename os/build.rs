@@ -57,7 +57,7 @@ app_{0}_name:
   .string "{1}"
 .align 8
 app_{0}_start:
-  .incbin "{2}{1}.bin"
+  .incbin "{2}{1}"
 app_{0}_end:"#,
       idx, app, TARGET_PATH
     )?;

@@ -8,5 +8,6 @@ edition = "2021"
 x86_64 = "*"
 bitflags = "1"
 uart_16550 = "0.2"
-rboot = { path = "../rboot" }
+xmas-elf = "0.8"
+rboot = { path = "../rboot", default-features = false }
 buddy_system_allocator = { version = "0.8", default-features = false }

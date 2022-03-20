@@ -3,43 +3,52 @@
 #![feature(panic_info_message)]
 #![feature(default_alloc_error_handler)]
 #![feature(const_maybe_uninit_zeroed)]
+#![feature(new_uninit)]
+
+extern crate alloc;
 
 use core::{mem, cell::UnsafeCell, ops::{Deref, DerefMut}, panic::PanicInfo};
 
-#[macro_use]
-mod console;
+pub use mem::{transmute, size_of, size_of_val};
+pub use alloc::{vec, vec::Vec, boxed::Box};
 
-mod syscall;
-mod task;
-mod trap;
-mod loader;
-mod pic;
-mod x86_64;
+#[macro_use]
+pub mod console;
+
+pub mod mm;
+pub mod syscall;
+pub mod task;
+pub mod trap;
+pub mod loader;
+pub mod pic;
+pub mod x86_64;
 
 /// The entry point of kernel
 #[no_mangle]
-pub extern "C" fn _start(boot_info: &'static rboot::BootInfo) -> ! {
+extern "C" fn _start(boot_info: &'static rboot::BootInfo) -> ! {
   console::init();
   trap::init();
-
-  println!("[kernel] Hello, world!");
-
   pic::init();
+
+  let (mut start, mut size) = (0, 0);
+  for &region in &boot_info.memory_map {
+    if region.ty == rboot::MemoryType::CONVENTIONAL && region.page_count > size {
+      size = region.page_count;
+      start = region.phys_start;
+    }
+  }
+  size *= mm::PAGE_SIZE as u64;
+  println!("[kernel] physical frames start = {:x}, size = {:x}", start, size);
+  mm::init(start as _, size as _);
 
   loader::list_apps();
   task::init();
-
-  // mm::init();
-  // mm::remap_test();
 
   // fs::list_apps();
   // task::add_initproc();
   // task::run_tasks();
   panic!("Unreachable in rust_main!");
 }
-
-
-pub use mem::{transmute, size_of, size_of_val};
 
 #[inline(always)]
 pub const fn zero<T>() -> T {
@@ -84,15 +93,11 @@ fn rust_oom() -> ! {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-  if let Some(location) = info.location() {
-    println!(
-      "[kernel] Panicked at {}:{} {}",
-      location.file(),
-      location.line(),
-      info.message().unwrap()
-    );
+  if let Some(l) = info.location() {
+    println!("[kernel] Panicked at {}:{} {}", l.file(), l.line(), info.message().unwrap());
   } else {
     println!("[kernel] Panicked: {}", info.message().unwrap());
   }
   loop {}
 }
+

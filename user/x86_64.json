@@ -10,11 +10,6 @@
   "executables": true,
   "dynamic-linking": true,
   "linker": "rust-lld",
-  "pre-link-args": {
-    "ld.lld": [
-      "-Tsrc/linker.ld"
-    ]
-  },
   "disable-redzone": true,
   "features": "-mmx,-sse,+soft-float",
   "panic-strategy": "abort"

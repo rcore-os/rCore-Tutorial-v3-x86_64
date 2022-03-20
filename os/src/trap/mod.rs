@@ -81,10 +81,10 @@ pub fn init() {
   x86_64::set_ss((2 << 3) | x86_64::RING0);
 
   load_tss((5 << 3) | RING0);
-  write_msr(EFER_MSR, read_msr(EFER_MSR) | 1); // enable system call extensions
-  write_msr(STAR_MSR, (2 << 3 << 48) | (1 << 3 << 32));
-  write_msr(LSTAR_MSR, syscall_entry as _);
-  write_msr(SFMASK_MSR, 0x47700); // TF|DF|IF|IOPL|AC|NT
+  set_msr(EFER_MSR, get_msr(EFER_MSR) | 1); // enable system call extensions
+  set_msr(STAR_MSR, (2 << 3 << 48) | (1 << 3 << 32));
+  set_msr(LSTAR_MSR, syscall_entry as _);
+  set_msr(SFMASK_MSR, 0x47700); // TF|DF|IF|IOPL|AC|NT
 
   #[repr(C, align(16))]
   struct IDT {

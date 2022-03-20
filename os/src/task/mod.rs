@@ -1,10 +1,11 @@
 mod manager;
 
-use crate::{*, trap::*};
+use crate::{*, trap::*, mm::*};
+use manager::TaskManager;
 
 core::arch::global_asm!(include_str!("switch.S"));
 
-static TASK_MANAGER: Cell<manager::TaskManager> = zero();
+static TASK_MANAGER: Cell<TaskManager> = Cell::new(TaskManager { tasks: Vec::new() });
 
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
@@ -18,6 +19,7 @@ extern "C" {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(usize)]
 pub enum TaskStatus {
   UnInit = 0,
   Runnable,
@@ -31,11 +33,13 @@ pub struct Task {
   id: usize,
   status: TaskStatus,
   ctx: Context,
-  kstack: [u8; TASK_SIZE - 10 * 8],
+  memory_set: Option<MemorySet>,
+  kstack: [u8; TASK_SIZE - size_of::<usize>() - size_of::<TaskStatus>() -
+    size_of::<Context>() - size_of::<Option<MemorySet>>()],
 }
 
 impl Task {
-  pub fn init_kernel(&mut self, id: usize, entry: fn(usize) -> usize, arg: usize) {
+  pub fn new_kernel(id: usize, entry: fn(usize) -> usize, arg: usize) -> Box<Self> {
     fn kernel_task_entry() -> ! {
       let cur = current();
       let entry: fn(usize) -> usize = unsafe { transmute(cur.ctx.regs.rbx) };
@@ -43,37 +47,65 @@ impl Task {
       let ret = entry(arg);
       current_exit(ret as _);
     }
-    self.id = id;
-    self.ctx.rip = kernel_task_entry as _;
-    self.ctx.regs.rsp = self.kstack.as_ptr_range().end as usize - size_of::<usize>();
-    self.ctx.regs.rbx = entry as _;
-    self.ctx.regs.rbp = arg;
-    self.status = TaskStatus::Runnable;
+    let mut t = Box::<Task>::new_uninit();
+    let p = unsafe { &mut *t.as_mut_ptr() };
+    p.id = id;
+    p.status = TaskStatus::Runnable;
+    p.ctx.rip = kernel_task_entry as _;
+    p.ctx.regs.rsp = p.kstack.as_ptr_range().end as usize - size_of::<usize>();
+    p.ctx.regs.rbx = entry as _;
+    p.ctx.regs.rbp = arg;
+    unsafe {
+      (&mut p.memory_set as *mut Option<MemorySet>).write(None);
+      t.assume_init()
+    }
   }
 
-  pub fn init_user(&mut self, id: usize, entry: usize, ustack_top: usize) {
-    fn user_task_entry(_: usize) -> usize {
+  pub fn new_user(id: usize, entry: usize, ms: MemorySet) -> Box<Self> {
+    fn user_task_entry(entry: usize) -> usize {
       let cur = current();
-      let entry = cur.ctx.regs.r12;
-      let ustack_top = cur.ctx.regs.r13;
       unsafe {
         let f = &mut *((cur.kstack.as_ptr_range().end as *mut SyscallFrame).sub(1));
         f.regs.rcx = entry;
         f.regs.r11 = x86_64::RFLAGS_IF;
-        f.rsp = ustack_top;
+        f.rsp = loader::USTACK_TOP;
         syscall_return(f);
       }
     }
-    self.init_kernel(id, user_task_entry, 0);
-    self.ctx.regs.r12 = entry;
-    self.ctx.regs.r13 = ustack_top;
+    let mut t = Self::new_kernel(id, user_task_entry, entry);
+    t.memory_set = Some(ms);
+    t
+  }
+
+  fn switch_to(&mut self, nxt: &Task) {
+    if let Some(ms) = &nxt.memory_set {
+      ms.activate(); // user task
+    }
+    unsafe { context_switch(&mut self.ctx, &nxt.ctx); }
   }
 }
 
 pub fn init() -> ! {
   assert_eq!(size_of::<Task>(), TASK_SIZE);
-  TASK_MANAGER.get().init();
-  unsafe { context_switch(&mut Context::default(), &TASK_MANAGER.get().tasks[0].ctx); }
+  let m = TASK_MANAGER.get();
+  let kernel_task_count = 3;
+  m.tasks.push(Task::new_kernel(0, |_| {
+    // running idle.
+    loop { x86_64::enable_and_hlt(); }
+  }, 0));
+  m.tasks.push(Task::new_kernel(1, |arg| {
+    println!("test kernel task 0: arg = {:#x}", arg);
+    0
+  }, 0xdead));
+  m.tasks.push(Task::new_kernel(2, |arg| {
+    println!("test kernel task 1: arg = {:#x}", arg);
+    0
+  }, 0xbeef));
+  for i in 0..loader::get_app_count() {
+    let (entry, ms) = loader::load_app(i);
+    m.tasks.push(Task::new_user(i + kernel_task_count, entry, ms));
+  }
+  unsafe { context_switch(&mut Context::default(), &m.tasks[0].ctx); }
   unreachable!();
 }
 
