@@ -4,3 +4,4 @@ target
 tmp
 vector.S
 link_app.S
+gdbinit

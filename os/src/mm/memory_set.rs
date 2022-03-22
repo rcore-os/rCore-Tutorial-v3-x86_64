@@ -21,6 +21,16 @@ impl MapArea {
     Self { start: start_va, size, flags, mapper: BTreeMap::new() }
   }
 
+  pub fn clone(&self) -> Self {
+    let mut mapper = BTreeMap::new();
+    for (&va, old) in &self.mapper {
+      let new = PhysFrame::alloc().unwrap();
+      new.as_slice().copy_from_slice(old.as_slice());
+      mapper.insert(va, new);
+    }
+    Self { start: self.start, size: self.size, flags: self.flags, mapper }
+  }
+
   pub fn map(&mut self, va: VirtAddr) -> PhysAddr {
     assert!(va.is_aligned());
     match self.mapper.entry(va) {
@@ -80,6 +90,14 @@ impl MemorySet {
 
   pub fn activate(&self) {
     x86_64::set_cr3(self.pt.root_pa.0);
+  }
+}
+
+impl Clone for MemorySet {
+  fn clone(&self) -> Self {
+    let mut ms = Self::new();
+    for area in self.areas.values() { ms.insert(area.clone()); }
+    ms
   }
 }
 

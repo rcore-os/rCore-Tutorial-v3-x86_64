@@ -16,9 +16,9 @@ pub fn get_app_count() -> usize {
 }
 
 pub fn get_app_name(app_id: usize) -> &'static str {
+  assert!(app_id < get_app_count());
   unsafe {
     let app_0_start_ptr = (&_app_count as *const usize).add(1);
-    assert!(app_id < get_app_count());
     let name = *app_0_start_ptr.add(app_id * 2) as *const u8;
     let mut len = 0;
     while *name.add(len) != b'\0' {
@@ -40,10 +40,11 @@ pub fn get_app_data(app_id: usize) -> &'static [u8] {
   }
 }
 
-pub fn load_app(app_id: usize) -> (usize, MemorySet) {
-  assert!(app_id < get_app_count());
+pub fn get_app_data_by_name(name: &str) -> Option<&'static [u8]> {
+  (0..get_app_count()).find(|&i| get_app_name(i) == name).map(get_app_data)
+}
 
-  let elf_data = get_app_data(app_id);
+pub fn load_app(elf_data: &[u8]) -> (usize, MemorySet) {
   let elf = ElfFile::new(elf_data).expect("invalid ELF file");
   assert_eq!(elf.header.pt1.class(), header::Class::SixtyFour, "64-bit ELF required");
   assert_eq!(elf.header.pt2.type_().as_type(), header::Type::Executable, "ELF is not an executable object");
@@ -70,7 +71,6 @@ pub fn load_app(app_id: usize) -> (usize, MemorySet) {
     let mut area = MapArea::new(area_start, area_end.0 - area_start.0, flags);
     area.write_data(offset, data);
     ms.insert(area);
-    // crate::arch::flush_icache_all();
   }
   ms.insert(MapArea::new(VirtAddr(USTACK_TOP - USTACK_SIZE), USTACK_SIZE,
     PTFlags::PRESENT | PTFlags::WRITABLE | PTFlags::USER));

@@ -20,7 +20,12 @@ pub fn out8(port: u16, val: u8) {
 }
 
 #[inline(always)]
-pub fn enable_and_hlt() {
+pub fn disable_interrupts() {
+  unsafe { asm!("cli", options(nomem, nostack)); }
+}
+
+#[inline(always)]
+pub fn enable_interrupts_and_hlt() {
   unsafe { asm!("sti; hlt", options(nomem, nostack)); }
 }
 

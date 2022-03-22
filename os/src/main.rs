@@ -10,7 +10,7 @@ extern crate alloc;
 use core::{mem, cell::UnsafeCell, ops::{Deref, DerefMut}, panic::PanicInfo};
 
 pub use mem::{transmute, size_of, size_of_val};
-pub use alloc::{vec, vec::Vec, boxed::Box};
+pub use alloc::{vec, vec::Vec, boxed::Box, string::String};
 
 #[macro_use]
 pub mod console;
@@ -47,7 +47,6 @@ extern "C" fn _start(boot_info: &'static rboot::BootInfo) -> ! {
   // fs::list_apps();
   // task::add_initproc();
   // task::run_tasks();
-  panic!("Unreachable in rust_main!");
 }
 
 #[inline(always)]

@@ -50,9 +50,16 @@ syscall_entry:
   # - load cs, ss from STAR MSR
   # - r11 <- rflags, mask rflags from RFMASK MSR
   # - rcx <- rip, load rip from LSTAR MSR
-  mov [TSS + rip + 12], rsp # temporarily store user rsp -> scratch at TSS.sp1
-  mov rsp, [TSS + rip + 4] # load kernel rsp <- TSS.sp0
-  push [TSS + rip + 12] # store user rsp -> SyscallFrame.rsp
+
+  # temporarily store user rsp into TSS.sp0 and load kernel rsp from it.
+  xchg rsp, [TSS + rip + 4]
+  push r15
+  push r14
+  push r13
+  push r12
+  push rbp
+  push rbx
+  push [TSS + rip + 4] # store user rsp into SyscallFrame.rsp
   save
   mov rdi, rsp
   call syscall_handler
@@ -63,8 +70,14 @@ syscall_entry:
 syscall_return: # (CallerRegs *)
   mov rsp, rdi
 __syscall_return:
-  lea rax, [rsp + 80] # prepare new TSS.sp0, 80 = sizeof(SyscallFrame)
+  lea rax, [rsp + 128] # prepare new TSS.sp0, 128 = sizeof(SyscallFrame)
   mov [TSS + rip + 4], rax
   restore
-  pop rsp # restore user rsp
+  mov rbx, [rsp + 8]
+  mov rbp, [rsp + 16]
+  mov r12, [rsp + 24]
+  mov r13, [rsp + 32]
+  mov r14, [rsp + 40]
+  mov r15, [rsp + 48]
+  mov rsp, [rsp + 0]
   sysretq

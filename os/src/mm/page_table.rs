@@ -161,7 +161,7 @@ const fn p2_index(va: VirtAddr) -> usize { (va.0 >> (12 + 9)) & (ENTRY_COUNT - 1
 const fn p1_index(va: VirtAddr) -> usize { (va.0 >> 12) & (ENTRY_COUNT - 1) }
 
 fn table_of<'a>(pa: PhysAddr) -> &'a mut [PageTableEntry] {
-  let ptr = pa.kvaddr().as_ptr() as *mut PageTableEntry;
+  let ptr = pa.kvaddr().as_ptr() as *mut _;
   unsafe { core::slice::from_raw_parts_mut(ptr, ENTRY_COUNT) }
 }
 
@@ -182,7 +182,9 @@ fn next_table_or_create<'a>(entry: &mut PageTableEntry, mut alloc: impl FnMut() 
 
 pub fn init() {
   let cr3 = x86_64::get_cr3();
-  let p4 = unsafe { core::slice::from_raw_parts_mut(cr3 as *mut PageTableEntry, ENTRY_COUNT) };
+  let p4 = table_of(PhysAddr(cr3));
   *KERNEL_PTE.get() = p4[p4_index(VirtAddr(KERNEL_OFFSET))];
   *PHYS_PTE.get() = p4[p4_index(VirtAddr(PHYS_OFFSET))];
+  // Cancel mapping in lowest addresses.
+  p4[0].0 = 0;
 }
