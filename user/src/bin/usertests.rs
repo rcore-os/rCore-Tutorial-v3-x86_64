@@ -26,7 +26,7 @@ pub fn main() -> i32 {
         println!("Usertests: Running '{}':", test);
         let pid = fork();
         if pid == 0 {
-            if exec(*test) == -1 {
+            if exec(*test, &[core::ptr::null::<u8>()]) == -1 {
                 panic!("usertest '{}' not found!", test);
             } else {
                 panic!("unreachable!");

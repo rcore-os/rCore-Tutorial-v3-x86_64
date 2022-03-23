@@ -1,4 +1,4 @@
-use crate::{*, trap::SyscallFrame};
+use crate::{*, task::*};
 use super::*;
 
 pub fn sys_exit(exit_code: i32) -> ! {
@@ -6,21 +6,32 @@ pub fn sys_exit(exit_code: i32) -> ! {
 }
 
 pub fn sys_yield() -> isize {
-  task::current_yield();
+  task::sched_yield();
   0
+}
+
+pub fn sys_kill(pid: usize, signal: u32) -> isize {
+  if let Some(t) = PID2TASK.get().get_mut(&pid) {
+    if let Some(signal) = SignalFlags::from_bits(signal as _) {
+      t.add_signal(signal);
+      return 0;
+    }
+  }
+  -1
 }
 
 pub fn sys_getpid() -> isize {
   task::current().id as _
 }
 
-pub fn sys_fork(f: &SyscallFrame) -> isize {
-  task::current().fork(f)
+pub fn sys_fork() -> isize {
+  task::current().fork()
 }
 
-pub fn sys_exec(path: *const u8, f: &mut SyscallFrame) -> isize {
+pub fn sys_exec(path: *const u8, args: *const *const u8) -> isize {
   let path = try_!(read_cstr(path), EFAULT);
-  task::current().exec(&path, f)
+  let args = try_!(read_cstr_array(args), EFAULT);
+  task::current().exec(&path, args)
 }
 
 /// If there is no child process has the same pid as the given, return -1.

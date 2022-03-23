@@ -15,7 +15,7 @@ impl File for Stdin {
         buf[0] = c as _;
         return 1;
       } else {
-        task::current_yield();
+        task::sched_yield();
       }
     }
   }

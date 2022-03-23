@@ -1,6 +1,8 @@
-use crate::{*, drivers::BLOCK_DEVICE};
+use crate::{*, drivers::*};
 use super::File;
 
+// use alloc::sync::Rc;
+use alloc::rc::Rc;
 use alloc::sync::Arc;
 use easy_fs::{EasyFileSystem, Inode};
 
@@ -11,11 +13,11 @@ pub struct OSInode {
   inode: Cell<Arc<Inode>>,
 }
 
-pub static ROOT_INODE: Cell<Arc<Inode>> = unsafe { transmute([1u8; size_of::<Arc<Inode>>()]) };
+pub static ROOT_INODE: Cell<Inode> = unsafe { transmute((1usize, 1usize, 1usize, DUMMY_BLOCK_DEVICE)) };
 
 pub fn init() {
   let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-  unsafe { (ROOT_INODE.get() as *mut Arc<Inode>).write(Arc::new(EasyFileSystem::root_inode(&efs))); }
+  unsafe { (ROOT_INODE.get() as *mut Inode).write(EasyFileSystem::root_inode(&efs)); }
   println!("/**** APPS ****");
   for app in ROOT_INODE.ls() {
     println!("{}", app);
@@ -66,24 +68,24 @@ impl OpenFlags {
   }
 }
 
-pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
+pub fn open_file(name: &str, flags: OpenFlags) -> Option<Rc<OSInode>> {
   let (readable, writable) = flags.read_write();
   if flags.contains(OpenFlags::CREATE) {
     if let Some(inode) = ROOT_INODE.find(name) {
       // clear size
       inode.clear();
-      Some(Arc::new(OSInode::new(readable, writable, inode)))
+      Some(Rc::new(OSInode::new(readable, writable, inode)))
     } else {
       // create file
       ROOT_INODE.create(name)
-        .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+        .map(|inode| Rc::new(OSInode::new(readable, writable, inode)))
     }
   } else {
     ROOT_INODE.find(name).map(|inode| {
       if flags.contains(OpenFlags::TRUNC) {
         inode.clear();
       }
-      Arc::new(OSInode::new(readable, writable, inode))
+      Rc::new(OSInode::new(readable, writable, inode))
     })
   }
 }

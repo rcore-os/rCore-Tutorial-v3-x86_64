@@ -5,7 +5,6 @@ authors = ["Chenhao Li <mashplants@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-x86_64 = "*"
 bitflags = "1"
 xmas-elf = "0.8"
 easy-fs = { path = "../easy-fs" }

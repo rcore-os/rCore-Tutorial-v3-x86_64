@@ -61,6 +61,22 @@ pub fn read_cstr(user: *const u8) -> Option<String> {
   }
 }
 
+pub fn read_cstr_array(user: *const *const u8) -> Option<Vec<String>> {
+  if user.is_null() {
+    Some(Vec::new())
+  } else {
+    let mut buf = Vec::new();
+    for i in 0.. {
+      let p = unsafe { user.add(i) };
+      let str = (p as *const usize).read_user()? as *const u8;
+      if str.is_null() { break; }
+      let str = read_cstr(str)?;
+      buf.push(str);
+    }
+    Some(buf)
+  }
+}
+
 pub fn validate_buf(root_pa: PhysAddr, ptr: *const u8, len: usize, write: bool) -> Option<&'static mut [u8]> {
   let mut require = PTFlags::PRESENT | PTFlags::USER;
   if write { require |= PTFlags::WRITABLE; }

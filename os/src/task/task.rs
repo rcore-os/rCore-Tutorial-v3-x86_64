@@ -1,6 +1,6 @@
 use crate::{*, trap::*, mm::*, fs::*};
 use super::*;
-use alloc::sync::Arc;
+use alloc::rc::Rc;
 
 core::arch::global_asm!(include_str!("switch.S"));
 
@@ -16,7 +16,7 @@ extern "C" {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(i32)]
+#[repr(u16)]
 pub enum TaskStatus {
   Runnable,
   Zombie,
@@ -41,15 +41,16 @@ pub struct Task {
   _align: TaskAlign,
   pub id: usize,
   pub status: TaskStatus,
+  pub signal: SignalFlags,
   pub exit_code: i32,
   pub ctx: Context,
   pub vm: Option<MemorySet>,
   pub parent: Option<&'static mut Task>,
   pub children: Vec<&'static mut Task>,
-  pub file_table: Vec<Option<Arc<dyn File>>>,
+  pub file_table: Vec<Option<Rc<dyn File>>>,
   kstack: [u8; TASK_SIZE - size_of::<usize>() * 2 - size_of::<Context>() -
     size_of::<Option<MemorySet>>() - size_of::<Option<&mut Task>>() - size_of::<Vec<&mut Task>>() -
-    size_of::<Vec<Option<Arc<dyn File>>>>()],
+    size_of::<Vec<Option<Rc<dyn File>>>>()],
 }
 
 fn new_id() -> usize {
@@ -59,11 +60,40 @@ fn new_id() -> usize {
   next
 }
 
-fn user_task_entry(_: usize) -> usize {
+pub fn user_task_entry(_: usize) -> usize {
   unsafe { syscall_return(current().syscall_frame()); }
 }
 
 impl Task {
+  /// Create a kernel task. Common entry for all task creation methods.
+  pub fn new(entry: fn(usize) -> usize, arg: usize) -> Box<Task> {
+    fn kernel_task_entry() -> ! {
+      let cur = current();
+      let entry: fn(usize) -> usize = unsafe { transmute(cur.ctx.regs.rbx) };
+      let arg = cur.ctx.regs.rbp;
+      let ret = entry(arg);
+      cur.exit(ret as _);
+    }
+    let mut t = Box::<Task>::new_uninit();
+    let p = unsafe { &mut *t.as_mut_ptr() };
+    p.id = new_id();
+    p.status = TaskStatus::Runnable;
+    p.signal = SignalFlags::empty();
+    p.ctx.rip = kernel_task_entry as _;
+    p.ctx.regs.rsp = p.kstack.as_ptr_range().end as usize - size_of::<usize>() - size_of::<SyscallFrame>();
+    p.ctx.regs.rbx = entry as _;
+    p.ctx.regs.rbp = arg;
+    p.parent = None;
+    unsafe {
+      (&mut p.vm as *mut Option<MemorySet>).write(None);
+      (&mut p.children as *mut Vec<&mut Task>).write(Vec::new());
+      (&mut p.file_table as *mut Vec<Option<Rc<dyn File>>>).write(
+        vec![Some(Rc::new(Stdin)), Some(Rc::new(Stdout)), Some(Rc::new(Stdout))]);
+      PID2TASK.get().insert(p.id, p);
+      t.assume_init()
+    }
+  }
+
   pub fn exit(&mut self, exit_code: i32) -> ! {
     println!("[kernel] Task {} exited with code {}", self.id, exit_code);
     self.vm = None;
@@ -77,27 +107,43 @@ impl Task {
     unreachable!("task exited!");
   }
 
-  pub fn fork(&mut self, f: &SyscallFrame) -> isize {
-    let mut t = new_kernel(user_task_entry, 0);
+  pub fn fork(&mut self) -> isize {
+    let mut t = Task::new(user_task_entry, 0);
     t.vm = self.vm.clone();
     t.file_table = self.file_table.clone();
-    let f1 = t.syscall_frame();
-    *f1 = *f;
-    f1.caller.rax = 0;
+    let f = t.syscall_frame();
+    *f = *self.syscall_frame();
+    f.caller.rax = 0;
     let ret = t.id as _;
     self.add_child(&mut t);
     TASK_MANAGER.get().enqueue(t);
     ret
   }
 
-  pub fn exec(&mut self, path: &str, f: &mut SyscallFrame) -> isize {
+  pub fn exec(&mut self, path: &str, args: Vec<String>) -> isize {
     if let Some(file) = open_file(path, OpenFlags::RDONLY) {
       let elf_data = file.read_all();
       let (entry, vm) = mm::load_app(&elf_data);
+      vm.activate(); // To access ustack.
+      let mut top = (USTACK_TOP - (args.len() + 1) * size_of::<usize>()) as *mut u8;
+      let argv = top as *mut usize;
+      unsafe {
+        for (i, arg) in args.iter().enumerate() {
+          top = top.sub(arg.len() + 1);
+          core::ptr::copy_nonoverlapping(arg.as_ptr(), top, arg.len());
+          *top.add(arg.len()) = 0; // '\0' terminator.
+          *argv.add(i) = top as _;
+        }
+        // Set argv[argc] = NULL, some C programs rely on this.
+        *argv.add(args.len()) = 0;
+      }
       self.vm = Some(vm);
+      let f = self.syscall_frame();
       f.caller.rcx = entry;
       f.caller.r11 = x86_64::RFLAGS_IF;
-      f.callee.rsp = mm::USTACK_TOP;
+      f.callee.rsp = top as usize & !0xF; // Align down to 16.
+      f.caller.rdi = args.len(); // _start parameter argc.
+      f.caller.rsi = argv as _; // _start parameter argv.
       0
     } else {
       -1
@@ -112,6 +158,7 @@ impl Task {
         if t.status == TaskStatus::Zombie {
           let child = self.children.remove(idx);
           let ret = (child.id as _, child.exit_code);
+          PID2TASK.get().remove(&child.id).unwrap();
           unsafe { Box::from_raw(child); } // Drop it.
           return ret;
         }
@@ -142,7 +189,7 @@ impl Task {
     }
   }
 
-  pub fn add_file(&mut self, file: Arc<dyn File>) -> usize {
+  pub fn add_file(&mut self, file: Rc<dyn File>) -> usize {
     for (i, f) in self.file_table.iter_mut().enumerate() {
       if f.is_none() {
         *f = Some(file);
@@ -152,40 +199,9 @@ impl Task {
     self.file_table.push(Some(file));
     self.file_table.len() - 1
   }
-}
 
-pub fn new_kernel(entry: fn(usize) -> usize, arg: usize) -> Box<Task> {
-  fn kernel_task_entry() -> ! {
-    let cur = current();
-    let entry: fn(usize) -> usize = unsafe { transmute(cur.ctx.regs.rbx) };
-    let arg = cur.ctx.regs.rbp;
-    let ret = entry(arg);
-    cur.exit(ret as _);
+  pub fn add_signal(&mut self, signal: SignalFlags) {
+    assert!(self.vm.is_some()); // Must not be a kernel task.
+    self.signal |= signal;
   }
-  let mut t = Box::<Task>::new_uninit();
-  let p = unsafe { &mut *t.as_mut_ptr() };
-  p.id = new_id();
-  p.status = TaskStatus::Runnable;
-  p.ctx.rip = kernel_task_entry as _;
-  p.ctx.regs.rsp = p.kstack.as_ptr_range().end as usize - size_of::<usize>() - size_of::<SyscallFrame>();
-  p.ctx.regs.rbx = entry as _;
-  p.ctx.regs.rbp = arg;
-  p.parent = None;
-  unsafe {
-    (&mut p.vm as *mut Option<MemorySet>).write(None);
-    (&mut p.children as *mut Vec<&mut Task>).write(Vec::new());
-    (&mut p.file_table as *mut Vec<Option<Arc<dyn File>>>).write(
-      vec![Some(Arc::new(Stdin)), Some(Arc::new(Stdout)), Some(Arc::new(Stdout))]);
-    t.assume_init()
-  }
-}
-
-pub fn new_user(entry: usize, vm: MemorySet) -> Box<Task> {
-  let mut t = new_kernel(user_task_entry, entry);
-  t.vm = Some(vm);
-  let f = t.syscall_frame();
-  f.caller.rcx = entry;
-  f.caller.r11 = x86_64::RFLAGS_IF;
-  f.callee.rsp = mm::USTACK_TOP;
-  t
 }

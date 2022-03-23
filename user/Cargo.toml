@@ -8,3 +8,4 @@ edition = "2021"
 
 [dependencies]
 bitflags = "1"
+buddy_system_allocator = "0.8"
