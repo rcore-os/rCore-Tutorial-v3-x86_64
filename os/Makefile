@@ -1,10 +1,9 @@
 # Building
 ARCH := x86_64
-TARGET := $(shell cat ../targets.txt | grep $(ARCH))
 MODE := debug
 KERNEL_ELF := target/$(ARCH)/$(MODE)/os
+FS_IMG := ../user/target/$(ARCH)/release/fs.img
 
-#BUILD_ARGS := --target $(TARGET) -Zbuild-std=core,alloc
 BUILD_ARGS := -Z build-std=core,alloc,compiler_builtins --target $(ARCH).json
 ifeq ($(MODE), release)
 	BUILD_ARGS += --release
@@ -30,24 +29,26 @@ QEMU_ARGS := -nographic \
 	-drive format=raw,file=fat:rw:$(ESP) \
 	-serial mon:stdio \
 	-m 4G \
-	-device isa-debug-exit
+	-device isa-debug-exit \
+	-drive file=$(FS_IMG),if=none,format=raw,id=fsimg \
+	-device ahci,id=ahci0 \
+	-device ide-hd,drive=fsimg,bus=ahci0.0
 
 GDB := gdb
 
-build: kernel bootloader
+build: kernel bootloader fs-img
 	mkdir -p $(ESP)/EFI/rCore $(ESP)/EFI/Boot
 	@cp ../rboot/target/x86_64-unknown-uefi/release/rboot.efi $(ESP)/EFI/Boot/BootX64.efi
 	@cp ../rboot/rboot.conf $(ESP)/EFI/Boot/rboot.conf
 	@cp $(KERNEL_ELF) $(ESP)/EFI/rCore/kernel.elf
 
-env:
-	(rustup target list | grep "$(TARGET) (installed)") || rustup target add $(TARGET)
-	cargo install cargo-binutils --vers =0.3.3
-	rustup component add rust-src
-	rustup component add llvm-tools-preview
-
 bootloader:
 	@cd ../rboot && make build
+
+fs-img: $(APPS)
+	@cd ../user && make build
+	@rm -f $(FS_IMG)
+	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/$(ARCH)/release/
 
 kernel:
 	@cd ../user && make build
@@ -72,4 +73,4 @@ debug: build
 		tmux split-window -h "$(GDB) $(KERNEL_ELF) -ex 'target remote localhost:1234' -q -x gdbinit" && \
 		tmux -2 attach-session -d
 
-.PHONY: build env kernel clean disasm run run-inner debug
+.PHONY: build kernel clean disasm run run-inner debug fs-img

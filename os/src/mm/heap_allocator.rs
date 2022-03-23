@@ -2,7 +2,7 @@ use crate::*;
 use buddy_system_allocator::Heap;
 use core::{alloc::{GlobalAlloc, Layout}, ptr::NonNull};
 
-const KERNEL_HEAP_SIZE: usize = 0x80_0000;
+const KERNEL_HEAP_SIZE: usize = 0x100_0000;
 
 struct LockedHeap(Cell<Heap<32>>);
 
@@ -21,6 +21,6 @@ unsafe impl GlobalAlloc for LockedHeap {
 
 static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
 
-pub fn init() {
+pub(crate) fn init() {
   unsafe { HEAP_ALLOCATOR.0.get().init(HEAP_SPACE.as_ptr() as _, KERNEL_HEAP_SIZE); }
 }

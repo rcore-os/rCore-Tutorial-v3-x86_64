@@ -29,7 +29,7 @@ pub fn init() -> ! {
     println!("test kernel task 1: arg = {:#x}", arg);
     0
   }, 0xbeef));
-  let (entry, vm) = loader::load_app(loader::get_app_data_by_name("user_shell").unwrap());
+  let (entry, vm) = mm::load_app(&fs::open_file("user_shell", fs::OpenFlags::RDONLY).unwrap().read_all());
   m.enqueue(new_user(entry, vm));
   let root = m.dequeue();
   unsafe {

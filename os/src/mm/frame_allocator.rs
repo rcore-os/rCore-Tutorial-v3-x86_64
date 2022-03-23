@@ -45,6 +45,10 @@ impl PhysFrame {
     FRAME_ALLOCATOR.get().alloc().map(Self)
   }
 
+  pub fn dealloc(pa: usize) {
+    FRAME_ALLOCATOR.get().dealloc(pa)
+  }
+
   pub fn alloc_zero() -> Option<Self> {
     let mut f = Self::alloc()?;
     f.zero();
@@ -66,7 +70,7 @@ impl Drop for PhysFrame {
   }
 }
 
-pub fn init(start: usize, size: usize) {
+pub(crate) fn init(start: usize, size: usize) {
   FRAME_ALLOCATOR.get().current = start;
   FRAME_ALLOCATOR.get().end = start + size;
 }

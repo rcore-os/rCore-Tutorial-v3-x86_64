@@ -11,17 +11,19 @@ use core::{mem, cell::UnsafeCell, ops::{Deref, DerefMut}, panic::PanicInfo};
 
 pub use mem::{transmute, size_of, size_of_val};
 pub use alloc::{vec, vec::Vec, boxed::Box, string::String};
+pub use easy_fs::BlockDevice;
 
 #[macro_use]
-pub mod console;
+mod console;
 
-pub mod mm;
-pub mod syscall;
-pub mod task;
-pub mod trap;
-pub mod loader;
-pub mod pic;
-pub mod x86_64;
+mod drivers;
+mod fs;
+mod mm;
+mod syscall;
+mod task;
+mod trap;
+mod pic;
+mod x86_64;
 
 /// The entry point of kernel
 #[no_mangle]
@@ -41,12 +43,9 @@ extern "C" fn _start(boot_info: &'static rboot::BootInfo) -> ! {
   println!("[kernel] physical frames start = {:x}, size = {:x}", start, size);
   mm::init(start as _, size as _);
 
-  loader::list_apps();
+  drivers::init();
+  fs::init();
   task::init();
-
-  // fs::list_apps();
-  // task::add_initproc();
-  // task::run_tasks();
 }
 
 #[inline(always)]
@@ -86,9 +85,7 @@ impl<T> DerefMut for Cell<T> {
 }
 
 #[no_mangle]
-fn rust_oom() -> ! {
-  panic!("rust_oom");
-}
+fn rust_oom() -> ! { panic!("rust_oom"); }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

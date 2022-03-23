@@ -31,16 +31,6 @@ copy_user64:
   xor eax, eax
   ret
 
-.global copy_user_n
-copy_user_n:
-loop:
-  sub rdx, 1
-  movzx eax, byte ptr [rsi + rdx]
-  mov byte ptr [rdi + rdx], al
-  jne loop
-  xor eax, eax
-  ret
-
 .global copy_user_end
 copy_user_end:
 

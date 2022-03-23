@@ -5,9 +5,9 @@ mod page_table;
 
 use core::fmt;
 
-pub use frame_allocator::PhysFrame;
-pub use memory_set::{MapArea, MemorySet};
-pub use page_table::{PageTable, PageTableEntry};
+pub use frame_allocator::*;
+pub use memory_set::*;
+pub use page_table::*;
 
 /// Total mapped memory in kernel. Region [ekernel, KERNEL_SIZE) is allocated as physical frames.
 /// It occupies less than one top-level entry in the kernel page table,

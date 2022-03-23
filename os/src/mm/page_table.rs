@@ -12,7 +12,6 @@ pub struct PageTableEntry(usize);
 impl PageTableEntry {
   const PHYS_ADDR_MASK: usize = !(PAGE_SIZE - 1);
 
-  pub const fn empty() -> Self { Self(0) }
   pub const fn new_page(pa: PhysAddr, flags: PTFlags) -> Self { Self((pa.0 & Self::PHYS_ADDR_MASK) | flags.bits) }
   const fn pa(self) -> PhysAddr { PhysAddr(self.0 as usize & Self::PHYS_ADDR_MASK) }
   const fn flags(self) -> PTFlags { PTFlags::from_bits_truncate(self.0) }
@@ -53,20 +52,11 @@ impl PageTable {
   }
 
   pub fn unmap(&mut self, va: VirtAddr) {
-    let entry = self.get_entry(va).unwrap();
+    let entry = get_entry(self.root_pa, va).unwrap();
     if entry.is_unused() {
       panic!("{:#x?} is invalid before unmapping", va);
     }
     entry.0 = 0;
-  }
-
-  pub fn query(&self, va: VirtAddr) -> Option<(PhysAddr, PTFlags)> {
-    let entry = self.get_entry(va)?;
-    if entry.is_unused() {
-      return None;
-    }
-    let off = va.page_offset();
-    Some((PhysAddr(entry.pa().0 + off), entry.flags()))
   }
 
   pub fn map_area(&mut self, area: &mut MapArea) {
@@ -89,17 +79,6 @@ impl PageTable {
       va += PAGE_SIZE;
     }
   }
-
-  #[allow(unused)]
-  pub fn dump(&self, limit: usize) {
-    println!("Root: {:x?}", self.root_pa);
-    self.walk(table_of(self.root_pa), 0, 0, limit,
-      &|level: usize, idx: usize, va: usize, entry: &PageTableEntry| {
-        for _ in 0..level { print!("  "); }
-        println!("[{} - {:x}], {:08x?}: {:x?}", level, idx, va, entry);
-      },
-    );
-  }
 }
 
 impl PageTable {
@@ -108,18 +87,6 @@ impl PageTable {
     let pa = frame.start_pa();
     self.tables.push(frame);
     pa
-  }
-
-  fn get_entry(&self, va: VirtAddr) -> Option<&mut PageTableEntry> {
-    let p4 = table_of(self.root_pa);
-    let p4e = &mut p4[p4_index(va)];
-    let p3 = next_table(p4e)?;
-    let p3e = &mut p3[p3_index(va)];
-    let p2 = next_table(p3e)?;
-    let p2e = &mut p2[p2_index(va)];
-    let p1 = next_table(p2e)?;
-    let p1e = &mut p1[p1_index(va)];
-    Some(p1e)
   }
 
   fn get_entry_or_create(&mut self, va: VirtAddr) -> Option<&mut PageTableEntry> {
@@ -133,23 +100,6 @@ impl PageTable {
     let p1e = &mut p1[p1_index(va)];
     Some(p1e)
   }
-
-  fn walk(&self, table: &[PageTableEntry], level: usize, start_va: usize, limit: usize,
-    func: &impl Fn(usize, usize, usize, &PageTableEntry)) {
-    let mut n = 0;
-    for (i, entry) in table.iter().enumerate() {
-      let va = start_va + (i << (12 + (3 - level) * 9));
-      if entry.is_present() {
-        func(level, i, va, entry);
-        if level < 3 {
-          let table_entry = next_table(entry).unwrap();
-          self.walk(table_entry, level + 1, va, limit, func);
-        }
-        n += 1;
-        if n >= limit { break; }
-      }
-    }
-  }
 }
 
 const fn p4_index(va: VirtAddr) -> usize { (va.0 >> (12 + 27)) & (ENTRY_COUNT - 1) }
@@ -159,6 +109,25 @@ const fn p3_index(va: VirtAddr) -> usize { (va.0 >> (12 + 18)) & (ENTRY_COUNT - 
 const fn p2_index(va: VirtAddr) -> usize { (va.0 >> (12 + 9)) & (ENTRY_COUNT - 1) }
 
 const fn p1_index(va: VirtAddr) -> usize { (va.0 >> 12) & (ENTRY_COUNT - 1) }
+
+pub fn query(root_pa: PhysAddr, va: VirtAddr) -> Option<(PhysAddr, PTFlags)> {
+  let entry = get_entry(root_pa, va)?;
+  if entry.is_unused() { return None; }
+  let off = va.page_offset();
+  Some((PhysAddr(entry.pa().0 + off), entry.flags()))
+}
+
+fn get_entry(root_pa: PhysAddr, va: VirtAddr) -> Option<&'static mut PageTableEntry> {
+  let p4 = table_of(root_pa);
+  let p4e = &mut p4[p4_index(va)];
+  let p3 = next_table(p4e)?;
+  let p3e = &mut p3[p3_index(va)];
+  let p2 = next_table(p3e)?;
+  let p2e = &mut p2[p2_index(va)];
+  let p1 = next_table(p2e)?;
+  let p1e = &mut p1[p1_index(va)];
+  Some(p1e)
+}
 
 fn table_of<'a>(pa: PhysAddr) -> &'a mut [PageTableEntry] {
   let ptr = pa.kvaddr().as_ptr() as *mut _;
@@ -180,7 +149,7 @@ fn next_table_or_create<'a>(entry: &mut PageTableEntry, mut alloc: impl FnMut() 
   }
 }
 
-pub fn init() {
+pub(crate) fn init() {
   let cr3 = x86_64::get_cr3();
   let p4 = table_of(PhysAddr(cr3));
   *KERNEL_PTE.get() = p4[p4_index(VirtAddr(KERNEL_OFFSET))];

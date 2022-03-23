@@ -1,7 +1,6 @@
-use crate::{*, trap::*, mm::*};
+use crate::{*, trap::*, mm::*, fs::*};
 use super::*;
-// use alloc::sync::{Arc, Weak};
-// use alloc::rc::{Rc, Weak};
+use alloc::sync::Arc;
 
 core::arch::global_asm!(include_str!("switch.S"));
 
@@ -23,10 +22,23 @@ pub enum TaskStatus {
   Zombie,
 }
 
+#[cfg(debug_assertions)]
+pub const TASK_SIZE: usize = 32768;
+
+#[cfg(not(debug_assertions))]
 pub const TASK_SIZE: usize = 8192;
 
-#[repr(C, align(8192))] // TASK_SIZE
+#[cfg(debug_assertions)]
+#[repr(align(32768))]
+struct TaskAlign;
+
+#[cfg(not(debug_assertions))]
+#[repr(C, align(8192))]
+struct TaskAlign;
+
+#[repr(C)]
 pub struct Task {
+  _align: TaskAlign,
   pub id: usize,
   pub status: TaskStatus,
   pub exit_code: i32,
@@ -34,8 +46,10 @@ pub struct Task {
   pub vm: Option<MemorySet>,
   pub parent: Option<&'static mut Task>,
   pub children: Vec<&'static mut Task>,
+  pub file_table: Vec<Option<Arc<dyn File>>>,
   kstack: [u8; TASK_SIZE - size_of::<usize>() * 2 - size_of::<Context>() -
-    size_of::<Option<MemorySet>>() - size_of::<Option<&mut Task>>() - size_of::<Vec<&mut Task>>()],
+    size_of::<Option<MemorySet>>() - size_of::<Option<&mut Task>>() - size_of::<Vec<&mut Task>>() -
+    size_of::<Vec<Option<Arc<dyn File>>>>()],
 }
 
 fn new_id() -> usize {
@@ -66,6 +80,7 @@ impl Task {
   pub fn fork(&mut self, f: &SyscallFrame) -> isize {
     let mut t = new_kernel(user_task_entry, 0);
     t.vm = self.vm.clone();
+    t.file_table = self.file_table.clone();
     let f1 = t.syscall_frame();
     *f1 = *f;
     f1.caller.rax = 0;
@@ -76,12 +91,13 @@ impl Task {
   }
 
   pub fn exec(&mut self, path: &str, f: &mut SyscallFrame) -> isize {
-    if let Some(elf_data) = loader::get_app_data_by_name(path) {
-      let (entry, vm) = loader::load_app(elf_data);
+    if let Some(file) = open_file(path, OpenFlags::RDONLY) {
+      let elf_data = file.read_all();
+      let (entry, vm) = mm::load_app(&elf_data);
       self.vm = Some(vm);
       f.caller.rcx = entry;
       f.caller.r11 = x86_64::RFLAGS_IF;
-      f.callee.rsp = loader::USTACK_TOP;
+      f.callee.rsp = mm::USTACK_TOP;
       0
     } else {
       -1
@@ -115,11 +131,26 @@ impl Task {
     unsafe { context_switch(&mut self.ctx, &nxt.ctx); }
   }
 
+  pub fn root_pa(&self) -> PhysAddr {
+    self.vm.as_ref().unwrap().pt.root_pa
+  }
+
   pub fn add_child(&mut self, child: &mut Task) {
     unsafe {
       child.parent = transmute(self as *mut _);
       self.children.push(transmute(child));
     }
+  }
+
+  pub fn add_file(&mut self, file: Arc<dyn File>) -> usize {
+    for (i, f) in self.file_table.iter_mut().enumerate() {
+      if f.is_none() {
+        *f = Some(file);
+        return i;
+      }
+    }
+    self.file_table.push(Some(file));
+    self.file_table.len() - 1
   }
 }
 
@@ -143,6 +174,8 @@ pub fn new_kernel(entry: fn(usize) -> usize, arg: usize) -> Box<Task> {
   unsafe {
     (&mut p.vm as *mut Option<MemorySet>).write(None);
     (&mut p.children as *mut Vec<&mut Task>).write(Vec::new());
+    (&mut p.file_table as *mut Vec<Option<Arc<dyn File>>>).write(
+      vec![Some(Arc::new(Stdin)), Some(Arc::new(Stdout)), Some(Arc::new(Stdout))]);
     t.assume_init()
   }
 }
@@ -153,6 +186,6 @@ pub fn new_user(entry: usize, vm: MemorySet) -> Box<Task> {
   let f = t.syscall_frame();
   f.caller.rcx = entry;
   f.caller.r11 = x86_64::RFLAGS_IF;
-  f.callee.rsp = loader::USTACK_TOP;
+  f.callee.rsp = mm::USTACK_TOP;
   t
 }

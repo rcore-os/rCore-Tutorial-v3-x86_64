@@ -8,5 +8,8 @@ edition = "2021"
 x86_64 = "*"
 bitflags = "1"
 xmas-elf = "0.8"
+easy-fs = { path = "../easy-fs" }
 rboot = { path = "../rboot", default-features = false }
+pci = { git = "https://github.com/rcore-os/pci-rs" }
+isomorphic_drivers = { git = "https://github.com/rcore-os/isomorphic_drivers" }
 buddy_system_allocator = { version = "0.8", default-features = false }

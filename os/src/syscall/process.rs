@@ -19,7 +19,7 @@ pub fn sys_fork(f: &SyscallFrame) -> isize {
 }
 
 pub fn sys_exec(path: *const u8, f: &mut SyscallFrame) -> isize {
-  let path = if let Some(x) = read_cstr(path) {x} else { return EFAULT; };
+  let path = try_!(read_cstr(path), EFAULT);
   task::current().exec(&path, f)
 }
 
@@ -28,7 +28,7 @@ pub fn sys_exec(path: *const u8, f: &mut SyscallFrame) -> isize {
 pub fn sys_waitpid(pid: isize, exit_code_p: *mut u32) -> isize {
   let (pid, exit_code) = task::current().waitpid(pid);
   if pid >= 0 && !exit_code_p.is_null() {
-    exit_code_p.write_user(exit_code as _);
+    try_!(exit_code_p.write_user(exit_code as _), EFAULT);
   }
   pid
 }
