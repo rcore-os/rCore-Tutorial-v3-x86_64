@@ -1,8 +1,6 @@
 use crate::{*, drivers::*};
 use super::File;
 
-// use alloc::sync::Rc;
-use alloc::rc::Rc;
 use alloc::sync::Arc;
 use easy_fs::{EasyFileSystem, Inode};
 

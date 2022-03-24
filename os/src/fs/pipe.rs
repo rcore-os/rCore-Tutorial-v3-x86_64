@@ -1,6 +1,6 @@
 use crate::*;
 use super::File;
-use alloc::{rc::{Rc, Weak}, collections::VecDeque};
+use alloc::rc::Weak;
 
 pub struct Pipe {
   writable: bool,

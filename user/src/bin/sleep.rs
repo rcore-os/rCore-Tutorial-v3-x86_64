@@ -7,7 +7,7 @@ extern crate user_lib;
 use user_lib::{exit, fork, get_time, sleep, waitpid};
 
 fn sleepy() {
-    let time: usize = 1000;
+    let time: usize = 100;
     for i in 0..5 {
         sleep(time);
         println!("sleep {} x {} msecs.", i + 1, time);
@@ -25,6 +25,6 @@ pub fn main() -> i32 {
     }
     assert!(waitpid(pid as usize, &mut exit_code) == pid && exit_code == 0);
     println!("use {} msecs.", get_time() - current_time);
-    println!("sleep passed!");
+    println!("sleep pass.");
     0
 }

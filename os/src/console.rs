@@ -61,7 +61,7 @@ pub fn send(data: u8) {
 
 /// Receives a byte on the serial port.
 pub fn receive() -> Option<u8> {
-  if line_sts().contains(LineSts::INPUT_FULL) { Some(in8(SERIAL_DATA)) } else {None  }
+  if line_sts().contains(LineSts::INPUT_FULL) { Some(in8(SERIAL_DATA)) } else { None }
 }
 
 struct Stdout;

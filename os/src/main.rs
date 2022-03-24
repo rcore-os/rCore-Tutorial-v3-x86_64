@@ -11,7 +11,8 @@ extern crate alloc;
 use core::{mem, cell::UnsafeCell, ops::{Deref, DerefMut}, panic::PanicInfo};
 
 pub use mem::{transmute, size_of, size_of_val};
-pub use alloc::{vec, vec::Vec, boxed::Box, string::String};
+pub use core::default::Default;
+pub use alloc::{vec, vec::Vec, rc::Rc, boxed::Box, string::String, collections::{VecDeque, BTreeMap}};
 pub use easy_fs::BlockDevice;
 
 #[macro_use]
@@ -20,6 +21,7 @@ mod console;
 mod drivers;
 mod fs;
 mod mm;
+mod sync;
 mod syscall;
 mod task;
 mod trap;
@@ -54,7 +56,7 @@ pub const fn zero<T>() -> T {
   unsafe { mem::MaybeUninit::zeroed().assume_init() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[repr(transparent)]
 pub struct Cell<T>(UnsafeCell<T>);
 

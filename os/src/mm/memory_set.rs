@@ -1,7 +1,7 @@
 use crate::*;
 use super::*;
 use core::fmt;
-use alloc::collections::btree_map::{BTreeMap, Entry};
+use alloc::collections::btree_map::Entry;
 use xmas_elf::{program::{SegmentData, Type}, {header, ElfFile}};
 
 pub const USTACK_SIZE: usize = 4096 * 4;
@@ -133,7 +133,6 @@ pub fn load_app(elf_data: &[u8]) -> (usize, MemorySet) {
   assert_eq!(elf.header.pt1.class(), header::Class::SixtyFour, "64-bit ELF required");
   assert_eq!(elf.header.pt2.type_().as_type(), header::Type::Executable, "ELF is not an executable object");
   assert_eq!(elf.header.pt2.machine().as_machine(), header::Machine::X86_64, "invalid ELF arch");
-
   let mut ms = MemorySet::new();
   for ph in elf.program_iter() {
     if ph.get_type() != Ok(Type::Load) {
@@ -158,6 +157,5 @@ pub fn load_app(elf_data: &[u8]) -> (usize, MemorySet) {
   }
   ms.insert(MapArea::new(VirtAddr(USTACK_TOP - USTACK_SIZE), USTACK_SIZE,
     PTFlags::PRESENT | PTFlags::WRITABLE | PTFlags::USER));
-
   (elf.header.pt2.entry_point() as usize, ms)
 }

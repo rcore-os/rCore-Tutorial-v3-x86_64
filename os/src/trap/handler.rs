@@ -20,20 +20,21 @@ const TIMER: usize = 32;
 #[no_mangle]
 pub extern "C" fn trap_handler(f: &'static mut TrapFrame) {
   match f.id {
-    DIVIDE_BY_ZERO =>  current().add_signal(SignalFlags::SIGFPE),
-    INVALID_OPCODE => current().add_signal(SignalFlags::SIGILL),
+    DIVIDE_BY_ZERO =>  current().proc.add_signal(SignalFlags::SIGFPE),
+    INVALID_OPCODE => current().proc.add_signal(SignalFlags::SIGILL),
     SEGMENT_NOT_PRESENT | STACK_SEGMENT_FAULT | GENERAL_PROTECTION_FAULT =>
-      current().add_signal(SignalFlags::SIGSEGV),
+      current().proc.add_signal(SignalFlags::SIGSEGV),
     PAGE_FAULT => if f.rip >= syscall::copy_user_start as usize && f.rip < syscall::copy_user_end as usize {
       println!("[kernel] copy_user_fail");
       f.rip = syscall::copy_user_fail as usize;
       return;
     } else {
-      current().add_signal(SignalFlags::SIGSEGV);
+      current().proc.add_signal(SignalFlags::SIGSEGV);
     }
     TIMER => {
       pic::ack();
       *pic::TICKS.get() += 1;
+      check_timer();
       sched_yield();
     }
     _ => {

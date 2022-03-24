@@ -1,4 +1,5 @@
-use crate::task::current;
+use crate::*;
+
 bitflags::bitflags! {
   pub struct SignalFlags: u16 {
     const SIGINT    = 1 << 2;
@@ -7,6 +8,10 @@ bitflags::bitflags! {
     const SIGFPE    = 1 << 8;
     const SIGSEGV   = 1 << 11;
   }
+}
+
+impl Default for SignalFlags {
+  fn default() -> Self { Self::empty() }
 }
 
 impl SignalFlags {
@@ -28,8 +33,8 @@ impl SignalFlags {
 }
 
 pub fn current_check_signal() {
-  let t = current();
-  if let Some((code, msg)) = t.signal.check_error() {
+  let t = task::current();
+  if let Some((code, msg)) = t.proc.signal.check_error() {
     println!("[kernel] {}", msg);
     t.exit(code);
   }
